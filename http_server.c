@@ -60,7 +60,8 @@ int main(int argc,char *argv[])
 
     // initialize the threadpool
     // Set the number of threads and size of the queue
-    // threadpool = threadpool_create(0,0);
+    
+    threadpool = threadpool_create(10,50);
 
 
     // Load the seats;

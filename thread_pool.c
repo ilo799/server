@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <stdio.h>
 
 #include "thread_pool.h"
 
@@ -14,17 +15,18 @@
  *  @var argument Argument to be passed to the function.
  */
 
-typedef struct {
+typedef struct threadpool_task_t{
     void (*function)(void *);
     void *argument;
-} threadpool_task_t;
+    struct threadpool_task_t* next;
+}threadpool_task_t;
 
 
 struct threadpool_t {
   pthread_mutex_t lock;
   pthread_cond_t notify;
-  pthread_t *threads;
-  threadpool_task_t *queue;
+  pthread_t *threads; //array of threads
+  threadpool_task_t *queue; //array of threadpool_tasks 
   int thread_count;
   int task_queue_size_limit;
 };
@@ -42,8 +44,48 @@ static void *thread_do_work(void *threadpool);
  *
  */
 threadpool_t *threadpool_create(int thread_count, int queue_size)
+{ 
+
+printf("Initalizing thread pool \n");
+/*create thread pool and initialize variables*/
+threadpool_t* thread_pool = (threadpool_t*) malloc (sizeof(threadpool_t));
+thread_pool->thread_count=thread_count;
+thread_pool->task_queue_size_limit = queue_size;
+
+/*create mutex*/
+pthread_mutex_t lock;
+pthread_mutex_init(&lock, NULL);
+thread_pool->lock=lock;
+
+/*create condition*/
+pthread_cond_t notify;
+pthread_cond_init (&notify, NULL);
+thread_pool->notify=notify;
+
+/*create the threads and add them to pool*/
+
+/*create a default thread attribute*/
+pthread_attr_t attr;
+pthread_attr_init(&attr);
+
+int i;
+pthread_t *threads = (pthread_t*) malloc (sizeof(pthread_t)*thread_count) ;
+int pthread_create_error;
+
+for (i=0; i<thread_count; i++)
 {
-    return NULL;
+	printf("creating thread %i \n", i);
+	pthread_create_error = pthread_create(&threads[i], &attr, thread_do_work, (void*)thread_pool);
+	if (pthread_create_error)
+	{ printf("ERROR: return code from pthread_create() is %d \n", pthread_create_error);
+	exit(-1);
+	}		 
+} 
+thread_pool->threads = threads;
+
+thread_pool->queue=NULL; /*task queue is initally empty*/
+
+return thread_pool;
 }
 
 
@@ -55,10 +97,58 @@ int threadpool_add_task(threadpool_t *pool, void (*function)(void *), void *argu
 {
     int err = 0;
     /* Get the lock */
-    /* Add task to queue */
-        
-    /* pthread_cond_broadcast and unlock */
+    pthread_mutex_t* lock = &(pool->lock);
+    /*Lock the queue while you update it (is this what thread safe means?).*/
+     printf("In critical section. Main thread is adding a task to the queue. Queue is locked from other threads \n"); 
+    err = pthread_mutex_lock(lock);
+    if (err)
+    {printf("Error when locking mutex. pthread_mutex_lock returned: %d \n", err);
+return -1;
+}
+    /*set the lock, now the queue is locked from the other threads*/
     
+    /* Add task to queue */
+
+    /*create a new task*/
+    threadpool_task_t* new_task = (threadpool_task_t*) malloc (sizeof(threadpool_task_t));
+    new_task->function=function;
+    new_task->argument=argument;
+    new_task->next=NULL;
+
+    /*add task to pool's queue*/
+    
+    /*If queue is empty initialize*/
+    threadpool_task_t* curr = pool->queue;
+     if (curr==NULL) 
+     {curr=new_task;} 
+
+   /*update LL*/  
+   else
+     {
+     while (curr->next!=NULL)
+      {curr = curr->next;}
+   
+     curr->next = new_task;
+     } 
+
+   /*done updating the queue, notify the sleeping threads and unlock mutex*/
+
+
+    /*get condition*/
+    pthread_cond_t* notify = &(pool->notify);
+    /* pthread_cond_broadcast and unlock */
+    err =  pthread_cond_broadcast(notify);
+    if (err)
+    {printf("Error when broadcasting cond. pthread_cond_broadcast returned: %d \n", err);
+return -1;
+}
+
+    err = pthread_mutex_unlock(lock);     
+       if (err)
+    {printf("Error when unlocking mutex. pthread_mutex_unlock returned: %d \n", err);
+return -1;
+}
+
     return err;
 }
 
@@ -93,21 +183,52 @@ static void *thread_do_work(void *threadpool)
 { 
 
     while(1) {
-        /* Lock must be taken to wait on conditional variable */
-        
 
+        /*Typecaste threadpool as threadpool_t* */
+        threadpool_t* pool = (threadpool_t*) threadpool; 
+
+        /* Lock must be taken to wait on conditional variable */
+        pthread_mutex_t *lock = &(pool->lock); 
+        pthread_cond_t *notify = &(pool->notify);
+
+        /*Set the lock*/
+        int err = pthread_mutex_lock(lock);
+        if(err)
+        {printf("pthread_mutex_lock error \n");}
         /* Wait on condition variable, check for spurious wakeups.
            When returning from pthread_cond_wait(), do some task. */
-        
+       err = pthread_cond_wait(notify, lock);
+       if (err)
+       {printf("pthread_cond_wait error \n");}
+        /*block on notify. Atomically(?) release lock- what does this mean? */
         
         /* Grab our task from the queue */
+        threadpool_task_t *queue_head = pool->queue;
+        threadpool_task_t *curr_task;
+ 
+       if (queue_head==NULL)
+         {
+            printf("No task for you.");
+            continue; 
+         }
+
+        curr_task = queue_head;
         
-
-        /* Unlock mutex for others */
-
+        /*delete task from LL*/
+         queue_head = queue_head->next;
+        
+        /*Unlock mutex for others*/
+	err = pthread_mutex_unlock(lock);
+        if(err)
+        {printf("pthread_mutex_unlock error \n");}
 
         /* Start the task */
-
+         void (*function) (void*);
+         void *argument;
+         function = curr_task->function;
+         argument = curr_task->argument;
+         
+         function(argument);
     }
 
     pthread_exit(NULL);

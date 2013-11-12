@@ -1,0 +1,6 @@
+*.o
+*.orig
+*.rej
+*.patch
+http_server
+
