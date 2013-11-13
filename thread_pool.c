@@ -26,7 +26,7 @@ struct threadpool_t {
   pthread_mutex_t lock;
   pthread_cond_t notify;
   pthread_t *threads; //array of threads
-  threadpool_task_t *queue; //array of threadpool_tasks 
+  threadpool_task_t *queue; //LL of threadpool_tasks 
   int thread_count;
   int task_queue_size_limit;
 };
@@ -118,13 +118,13 @@ return -1;
     /*add task to pool's queue*/
     
     /*If queue is empty initialize*/
-    threadpool_task_t* curr = pool->queue;
-     if (curr==NULL) 
-     {curr=new_task;} 
+     if (pool->queue==NULL) 
+     {pool->queue=new_task;} 
 
    /*update LL*/  
    else
      {
+     threadpool_task_t* curr = pool->queue;
      while (curr->next!=NULL)
       {curr = curr->next;}
    
@@ -162,14 +162,19 @@ int threadpool_destroy(threadpool_t *pool)
 {
     int err = 0;
 
-    
-    /* Wake up all worker threads */
-    
-
-    /* Join all worker thread */
-        
+   /* Wake up all worker threads */
+   threadpool_add_task(pool, NULL, NULL);
+   pthread_cond_broadcast(&(pool->notify));
+   /* Join all worker thread */
+   int i;
+	for (i=0; i<pool->thread_count; i++)
+	{pthread_join(pool->threads[i],NULL);}  		
 
     /* Only if everything went well do we deallocate the pool */
+   free ((void*) pool->queue);
+   free ((void*) pool->threads);
+   free ((void*) pool);  
+
     return err;
 }
 
@@ -194,7 +199,10 @@ static void *thread_do_work(void *threadpool)
         /*Set the lock*/
         int err = pthread_mutex_lock(lock);
         if(err)
-        {printf("pthread_mutex_lock error \n");}
+        {
+	   printf("pthread_mutex_lock error \n");
+	   continue;
+	}
         /* Wait on condition variable, check for spurious wakeups.
            When returning from pthread_cond_wait(), do some task. */
        err = pthread_cond_wait(notify, lock);
@@ -203,19 +211,22 @@ static void *thread_do_work(void *threadpool)
         /*block on notify. Atomically(?) release lock- what does this mean? */
         
         /* Grab our task from the queue */
-        threadpool_task_t *queue_head = pool->queue;
-        threadpool_task_t *curr_task;
- 
-       if (queue_head==NULL)
+	threadpool_task_t* curr_task = pool->queue;
+
+       if (curr_task==NULL)
          {
-            printf("No task for you.");
             continue; 
          }
 
-        curr_task = queue_head;
-        
-        /*delete task from LL*/
-         queue_head = queue_head->next;
+	if(curr_task->function == NULL)
+        {
+         pthread_mutex_unlock(&(pool->lock));
+         pthread_exit(NULL);
+    	 return(NULL);
+        }
+
+       /*delete task from LL*/
+        pool->queue=pool->queue->next;   
         
         /*Unlock mutex for others*/
 	err = pthread_mutex_unlock(lock);
@@ -228,9 +239,9 @@ static void *thread_do_work(void *threadpool)
          function = curr_task->function;
          argument = curr_task->argument;
          
+         free ((void*) curr_task);    
          function(argument);
+     
     }
 
-    pthread_exit(NULL);
-    return(NULL);
 }
