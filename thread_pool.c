@@ -101,14 +101,15 @@ int threadpool_add_task(threadpool_t *pool, void (*function)(void *), void *argu
     /*Lock the queue while you update it (is this what thread safe means?).*/
      printf("In critical section. Main thread is adding a task to the queue. Queue is locked from other threads \n"); 
     err = pthread_mutex_lock(lock);
-    if (err)
+    printf ("aquired lock \n");    
+if (err)
     {printf("Error when locking mutex. pthread_mutex_lock returned: %d \n", err);
 return -1;
 }
     /*set the lock, now the queue is locked from the other threads*/
     
     /* Add task to queue */
-
+   
     /*create a new task*/
     threadpool_task_t* new_task = (threadpool_task_t*) malloc (sizeof(threadpool_task_t));
     new_task->function=function;
@@ -136,7 +137,8 @@ return -1;
 
     /*get condition*/
     pthread_cond_t* notify = &(pool->notify);
-    /* pthread_cond_broadcast and unlock */
+    /* pthread_cond_broadcast and unlock") */
+    printf("About to broadcast notify \n");
     err =  pthread_cond_broadcast(notify);
     if (err)
     {printf("Error when broadcasting cond. pthread_cond_broadcast returned: %d \n", err);
@@ -146,9 +148,10 @@ return -1;
     err = pthread_mutex_unlock(lock);     
        if (err)
     {printf("Error when unlocking mutex. pthread_mutex_unlock returned: %d \n", err);
+
 return -1;
 }
-
+   printf("End of add_task function \n");
     return err;
 }
 
@@ -215,9 +218,11 @@ static void *thread_do_work(void *threadpool)
 
        if (curr_task==NULL)
          {
+	    pthread_mutex_unlock(lock);
             continue; 
          }
-
+         
+        printf("Thread about to pull new task \n"); 
 	if(curr_task->function == NULL)
         {
          pthread_mutex_unlock(&(pool->lock));
@@ -238,10 +243,11 @@ static void *thread_do_work(void *threadpool)
          void *argument;
          function = curr_task->function;
          argument = curr_task->argument;
-         
+        printf("About to free curr_task. \n"); 
          free ((void*) curr_task);    
+	printf("Freed curr_task \n");
          function(argument);
-     
+        printf("Called function. \n");
     }
 
 }

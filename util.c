@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <errno.h>
-
+#include "util.h"
 
 #include "seats.h"
 
@@ -22,8 +22,17 @@ int get_line(int, char*,int);
 
 int parse_int_arg(char* filename, char* arg);
 
+
+void handle_connection_wrapper(void* connfd_ptr)
+{
+
+handle_connection((int*) connfd_ptr);
+
+}
+
 void handle_connection(int* connfd_ptr)
 {
+    printf("In handle connection \n");
     int connfd = *(connfd_ptr);
 
     int fd;
@@ -58,9 +67,11 @@ void handle_connection(int* connfd_ptr)
     // get headers
 
     //Expection Format: 'GET filenane.txt HTTP/1.X'
-    
+   
+    printf("connfd = %d \n", connfd);  
     get_line(connfd, buf, BUFSIZE);
     
+    printf("About to parse instr. \n");
     //parse out instruction
     while( !isspace(buf[j]) && (i < sizeof(instr) - 1))
     {

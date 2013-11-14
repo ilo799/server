@@ -90,8 +90,7 @@ int main(int argc,char *argv[])
         connfd = accept(listenfd, (struct sockaddr*)NULL, NULL);
         
         // single threaded
-         
-        threadpool_add_task(threadpool, handle_connection, (void*) connfd);
+        threadpool_add_task(threadpool, handle_connection_wrapper, (void*) &connfd);
     }
 }
 
